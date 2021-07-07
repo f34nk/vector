@@ -14,6 +14,11 @@ lazy_static! {
     (?:0[1-9]|[1-9]0|[1-9][1-9])-                                         # Group number: 01-99
     (?:000[1-9]|00[1-9]0|0[1-9]00|[1-9]000|[1-9]{4})                      # Serial number: 0001-9999
     "#).unwrap();
+    // https://datatracker.ietf.org/doc/html/rfc7519
+    static ref JWT_TOKEN : regex::Regex = regex::Regex::new(
+    r#"(?x)                                                               # Ignore whitespace and comments in the regex expression.
+    ([a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+)
+    "#).unwrap();
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -50,6 +55,11 @@ impl Function for Redact {
                 title: "us_social_security_number",
                 source: r#"redact({ "name": "John Doe", "ssn": "123-12-1234"}, filters: ["us_social_security_number"])"#,
                 result: Ok(r#"{ "name": "John Doe", "ssn": "[REDACTED]" }"#),
+            },
+            Example {
+                title: "jwt_token",
+                source: r#"redact({ "name": "John Doe", "token": "Abcde-123456-abcde-123456.Abcde-123456-abcde-123456.Abcde-123456-abcde-123456"}, filters: ["jwt_token"])"#,
+                result: Ok(r#"{ "name": "John Doe", "token": "[REDACTED]" }"#),
             },
         ]
     }
@@ -145,6 +155,7 @@ impl Expression for RedactFn {
 enum Filter {
     Pattern(Vec<Pattern>),
     UsSocialSecurityNumber,
+    JwtToken,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +180,7 @@ impl TryFrom<Value> for Filter {
 
                 match r#type.as_ref() {
                     b"us_social_security_number" => Ok(Filter::UsSocialSecurityNumber),
+                    b"jwt_token" => Ok(Filter::JwtToken),
                     b"pattern" => {
                         let patterns = match object
                             .get("patterns")
@@ -194,6 +206,7 @@ impl TryFrom<Value> for Filter {
             Value::Bytes(bytes) => match bytes.as_ref() {
                 b"pattern" => Err("pattern cannot be used without arguments"),
                 b"us_social_security_number" => Ok(Filter::UsSocialSecurityNumber),
+                b"jwt_token" => Ok(Filter::JwtToken),
                 _ => Err("unknown filter name"),
             },
             Value::Regex(regex) => Ok(Filter::Pattern(vec![Pattern::Regex((*regex).clone())])),
@@ -220,6 +233,9 @@ impl Filter {
             }
             Filter::UsSocialSecurityNumber => {
                 US_SOCIAL_SECURITY_NUMBER.replace_all(&input, redactor.pattern())
+            }
+            Filter::JwtToken => {
+                JWT_TOKEN.replace_all(&input, redactor.pattern())
             }
         }
     }
@@ -297,6 +313,15 @@ mod test {
                  filters: vec!["us_social_security_number"],
              ],
              want: Ok("hello [REDACTED] world"),
+             tdef: TypeDef::new().infallible().bytes(),
+        }
+
+        jwt_token{
+             args: func_args![
+                 value: "This is a token: Abcde-123456-abcde-123456.Abcde-123456-abcde-123456.Abcde-123456-abcde-123456",
+                 filters: vec!["jwt_token"],
+             ],
+             want: Ok("This is a token: [REDACTED]"),
              tdef: TypeDef::new().infallible().bytes(),
         }
 

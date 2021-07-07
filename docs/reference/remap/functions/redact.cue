@@ -79,5 +79,15 @@ remap: functions: redact: {
 				ssn:  "[REDACTED]"
 			}
 		},
+    {
+      title: "Replace jwt tokens in any field"
+      source: #"""
+        redact({ "name": "John Doe", "token": "This is my token Abcde-123456-abcde-123456.Abcde-123456-abcde-123456.Abcde-123456-abcde-123456"}, filters: ["jwt_token"])
+        """#
+      return: {
+        name: "John Doe"
+        token:  "This is my token [REDACTED]"
+      }
+    },
 	]
 }
